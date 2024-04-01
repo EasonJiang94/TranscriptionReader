@@ -1,0 +1,7 @@
+llama/
+llama.cpp/
+models/
+grok-1/
+dist/
+*.zip
+*.pyc
