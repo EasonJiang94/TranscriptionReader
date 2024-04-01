@@ -5,3 +5,4 @@ grok-1/
 dist/
 *.zip
 *.pyc
+*.log
