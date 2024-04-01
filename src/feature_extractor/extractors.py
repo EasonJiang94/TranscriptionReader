@@ -7,22 +7,6 @@ from dataloader import DataLoader
 # pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_rows', None)
 
-
-
-#     def extract_by_llama(self):
-#         prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
-#         prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
-#         post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
-#         post_prompt = "\nAnswer with the format : 'Age : <num>'.\n If you don't know the answer, you can say : 'Age : Unkown'"
-#         for cnt, trans in enumerate(self.data["transcription"]):
-#             trans = trans.replace('"', '\\"')
-#             token = prompt + trans + post_prompt
-#             # print(token)
-#             # os.system(f"llm -m l2c \"{token}\"")
-#             response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
-#             print(f"{cnt}\t|\t{response}", flush=True)
-#             if cnt <=18:
-#                 continue
 class FeatureExtractorInterface:
     AGE = "extracted_age"
     TREAT = "extracted_treatment"
