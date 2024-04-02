@@ -3,6 +3,7 @@ from loguru import logger
 import re
 import os
 import subprocess
+import json
 from dataloader import DataLoader
 # pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_rows', None)
@@ -35,6 +36,8 @@ class BasicExtractor(FeatureExtractorInterface):
     def __init__(self, dataloader:DataLoader, method='basic'):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
+        logger.info("Launched BasicExtractor")
+        
 
     def do_extract(self):
         self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.DES_STR].apply(self.extract_age)\
@@ -103,9 +106,13 @@ class BasicExtractor(FeatureExtractorInterface):
             return None
     
 class Llama2Extractor(BasicExtractor):
+    # follow the instruction from the link below to use llm CLI
+    # https://simonwillison.net/2023/Aug/1/llama-2-mac/
     def __init__(self, dataloader:DataLoader, method='basic'):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
+        logger.info("Launched Llama2Extractor")
+        self.cnt = 0
 
     def do_extract(self):
         self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
@@ -113,30 +120,119 @@ class Llama2Extractor(BasicExtractor):
         return self.data
 
     def extract_age(self, text):
+        if not isinstance(text, str):
+            return None
         # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
         prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
-        post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
+        # post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
         post_prompt = "\nAnswer with the json format : {'Age' : <num or None>}.\n If you don't know the answer, you can say : 'Age : Unkown'"
-        post_prompt = ""
+        # post_prompt = ""
         text = text.replace('"', '\\"')
         token = prompt + text + post_prompt
         # print(token)
         # os.system(f"llm -m l2c \"{token}\"")
         response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
-        print(f"{response}", flush=True)
+        print(f"{self.cnt}\t| {response}", flush=True)
+        self.cnt += 1
+        return response
+    
+    def _extract_treatment(self, text):
+        if not isinstance(text, str):
+            return None
+        # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
+        prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
+        # post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
+        post_prompt = "\nAnswer with the json format : {'Age' : <num or None>}.\n If you don't know the answer, you can say : 'Age : Unkown'"
+        # post_prompt = ""
+        text = text.replace('"', '\\"')
+        token = prompt + text + post_prompt
+        # print(token)
+        # os.system(f"llm -m l2c \"{token}\"")
+        response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
+        print(f"{self.cnt}\t| {response}", flush=True)
+        self.cnt += 1
+        return response
+    
+class ChatGPTExtractor(BasicExtractor):
+    # follow the instruction from the link below to use chat-gpt api
+    # https://platform.openai.com/docs/quickstart?context=python
+    
+    def __init__(self, dataloader:DataLoader, method='basic'):
+        from openai import OpenAI
+        super().__init__(dataloader)
+        # self.dl.show(4998, col=DataLoader.TRAN_STR)
+        self.client = OpenAI()
+        logger.info("Launched Llama2Extractor")
+        self.cnt = 0
+        
+
+
+    def do_extract(self):
+        self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
+        self.data[FeatureExtractorInterface.TREAT] = self.data[DataLoader.TRAN_STR].apply(self.extract_treatment)
+        return self.data
+
+    def extract_age(self, text):
+        if not isinstance(text, str):
+            return None
+        if self.cnt >20:
+            return None
+        prompt = "Analyze the information step by step, Do a simple summarize, \
+            then tell me the patient's age. \
+            Please output the age information only, do not tell me other information\n\
+            Answer in a json format, the key of age is \"age\"\n"
+        
+        response = self.client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": text}
+            ]
+        )
+        ans = response.choices[0].message.content
+        try:
+            ans.replace("\\n", "")
+            ans = json.loads(ans)["age"]
+        except:
+            logger.warning(f"it could not be analyze by json lib\n{ans = }")
+            pass
+        print(f"{self.cnt}\t| {ans}", flush=True)
+        self.cnt += 1
+
+        return ans
+    
+    def _extract_treatment(self, text):
+        if not isinstance(text, str):
+            return None
+        # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
+        prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
+        # post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
+        post_prompt = "\nAnswer with the json format : {'Age' : <num or None>}.\n If you don't know the answer, you can say : 'Age : Unkown'"
+        # post_prompt = ""
+        text = text.replace('"', '\\"')
+        token = prompt + text + post_prompt
+        # print(token)
+        # os.system(f"llm -m l2c \"{token}\"")
+        response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
+        print(f"{self.cnt}\t| {response}", flush=True)
+        self.cnt += 1
         return response
    
 
 class Extractor(FeatureExtractorInterface):
-    
+    EXTRACTOR_LIST = ["basic", "llama2", "ChatGPT"]
     def __init__(self, dataloader:DataLoader, method='basic'):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
+        if method not in Extractor.EXTRACTOR_LIST:
+            logger.error(f"{method = } is not supported")
+            raise ValueError
         self.extract_methods = {
-            "basic" : BasicExtractor(dataloader),
-            "llama2" : Llama2Extractor(dataloader)
+            "basic" : BasicExtractor,
+            "llama2" : Llama2Extractor,
+            "ChatGPT" : ChatGPTExtractor
         }
-        self.extractor = self.extract_methods[method]
+        self.extractor = self.extract_methods[method](dataloader)
         self.extractor.do_extract()
         # self.show()
 
@@ -145,15 +241,15 @@ class Extractor(FeatureExtractorInterface):
 if __name__ == "__main__":
     path = "../../data/mtsamples.csv"
     dl = DataLoader(path)
-    ex = Extractor(dl, method="llama2")
-    test_cases = ["56-year-old", "56-year old", "67-year old", "64 year-old", "2-1/2-year-old", "5-1/2 years old"]
-    extracted_ages = [BasicExtractor(dl).extract_age(case) for case in test_cases]
-    print(extracted_ages)
-    test_cases = ["46 years old", "ten year old", "one year old"]
-    extracted_ages = [BasicExtractor(dl).extract_special_age(case) for case in test_cases]
-    print(extracted_ages)
-    test_cases = ["This 31 y/o"]
-    extracted_ages = [BasicExtractor(dl).extract_y_o_age(case) for case in test_cases]
-    print(extracted_ages)
+    ex = Extractor(dl, method="ChatGPT")
+    # test_cases = ["56-year-old", "56-year old", "67-year old", "64 year-old", "2-1/2-year-old", "5-1/2 years old"]
+    # extracted_ages = [BasicExtractor(dl).extract_age(case) for case in test_cases]
+    # print(extracted_ages)
+    # test_cases = ["46 years old", "ten year old", "one year old"]
+    # extracted_ages = [BasicExtractor(dl).extract_special_age(case) for case in test_cases]
+    # print(extracted_ages)
+    # test_cases = ["This 31 y/o"]
+    # extracted_ages = [BasicExtractor(dl).extract_y_o_age(case) for case in test_cases]
+    # print(extracted_ages)
     ex.show(21)
     # print(dl.columns)
