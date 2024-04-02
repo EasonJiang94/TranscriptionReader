@@ -4,7 +4,8 @@ import re
 import os
 import subprocess
 import json
-from dataloader import DataLoader
+from feature_extractor.dataloader import DataLoader
+import time
 # pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_rows', None)
 
@@ -28,14 +29,26 @@ class FeatureExtractorInterface:
     def extract_treatment(self, text):
         return None
     
-    def show(self, feature=None, n=100):
-        if feature is None:
-            feature = FeatureExtractorInterface.AGE
-        logger.info(self.data[feature].head(n))
+    def show(self, features=None, n=100):
+        if features is None:
+            features = [FeatureExtractorInterface.AGE]
+        elif isinstance(features, str):
+            features = [features]
+
+        valid_features = [feature for feature in features if feature in self.data.columns]
+
+        if len(valid_features) < len(features):
+            invalid_features = set(features) - set(valid_features)
+            logger.warning(f"Some specified features are not valid and will be ignored: {invalid_features}")
+
+        if valid_features:
+            logger.info(self.data[valid_features].head(n))
+        else:
+            logger.warning("No valid features were specified for display.")
 
 
 class BasicExtractor(FeatureExtractorInterface):
-    def __init__(self, dataloader:DataLoader, method='basic'):
+    def __init__(self, dataloader:DataLoader, size=None):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
         logger.info("Launched BasicExtractor")
@@ -110,22 +123,23 @@ class BasicExtractor(FeatureExtractorInterface):
 class Llama2Extractor(BasicExtractor):
     # follow the instruction from the link below to use llm CLI
     # https://simonwillison.net/2023/Aug/1/llama-2-mac/
-    def __init__(self, dataloader:DataLoader, size=5, method='basic'):
+    def __init__(self, dataloader:DataLoader, size=5):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
         logger.info("Launched Llama2Extractor")
-        self.cnt = 0
+        self.age_cnt = 0
+        self.treat_cnt = 0
         self.size = size
 
     def do_extract(self):
-        #self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
+        self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
         self.data[FeatureExtractorInterface.TREAT] = self.data[DataLoader.TRAN_STR].apply(self.extract_treatment)
         return self.data
 
     def extract_age(self, text):
         if not isinstance(text, str):
             return None
-        if self.cnt > self.size:
+        if self.age_cnt > self.size:
             return None
         # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
         prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
@@ -137,14 +151,14 @@ class Llama2Extractor(BasicExtractor):
         # print(token)
         # os.system(f"llm -m l2c \"{token}\"")
         response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
-        print(f"{self.cnt}\t| {response}", flush=True)
-        self.cnt += 1
+        print(f"{self.age_cnt}\t| {response}", flush=True)
+        self.age_cnt += 1
         return response
     
     def extract_treatment(self, text):
         if not isinstance(text, str):
             return None
-        if self.cnt > self.size:
+        if self.treat_cnt > self.size:
             return None
         logger.debug("Extracting treatment information")
         prompt = "Analyze the information step by step, make a brief summarization of what treatment of the patient received\n"
@@ -152,37 +166,37 @@ class Llama2Extractor(BasicExtractor):
         # post_prompt = ""
         text = text.replace('"', '\\"')
         token = prompt + text + post_prompt
-        # print(token)
-        # os.system(f"llm -m l2c \"{token}\"")
         response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
-        print(f"{self.cnt}\t| {response}", flush=True)
-        self.cnt += 1
+        print(f"{self.treat_cnt}\t| {response}", flush=True)
+        self.treat_cnt += 1
         return response
     
 class ChatGPTExtractor(BasicExtractor):
     # follow the instruction from the link below to use chat-gpt api
     # https://platform.openai.com/docs/quickstart?context=python
     
-    def __init__(self, dataloader:DataLoader,size=5, method='basic'):
+    def __init__(self, dataloader:DataLoader,size=5):
         from openai import OpenAI
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
         self.client = OpenAI()
-        logger.info("Launched Llama2Extractor")
-        self.cnt = 0
+        logger.info("Launched ChatGPTExtractor")
+        self.age_cnt = 0
+        self.treat_cnt = 0
         self.size = size
         
 
 
     def do_extract(self):
-        # self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
+        self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age) 
+        time.sleep(0.001)       
         self.data[FeatureExtractorInterface.TREAT] = self.data[DataLoader.TRAN_STR].apply(self.extract_treatment)
         return self.data
 
     def extract_age(self, text):
         if not isinstance(text, str):
             return None
-        if self.cnt > self.size:
+        if self.age_cnt > self.size:
             return None
         prompt = "Analyze the information step by step, Do a simple summarize, \
             then tell me the patient's age. \
@@ -203,15 +217,15 @@ class ChatGPTExtractor(BasicExtractor):
         except:
             logger.warning(f"it could not be analyze by json lib\n{ans = }")
             pass
-        print(f"{self.cnt}\t| {ans}", flush=True)
-        self.cnt += 1
+        print(f"{self.age_cnt}\t| {ans}", flush=True)
+        self.age_cnt += 1
 
         return ans
     
     def extract_treatment(self, text):
         if not isinstance(text, str):
             return None
-        if self.cnt > self.size:
+        if self.treat_cnt > self.size:
             return None
         prompt = "Analyze the information step by step, \
                 make a brief summarization of what treatment of the patient received\n"
@@ -227,17 +241,18 @@ class ChatGPTExtractor(BasicExtractor):
         )
         ans = response.choices[0].message.content
         
-        print(f"{self.cnt}\t| {ans}", flush=True)
-        self.cnt += 1
+        print(f"{self.treat_cnt}\t| {ans}", flush=True)
+        self.treat_cnt += 1
 
         return ans
    
 
 class Extractor(FeatureExtractorInterface):
     EXTRACTOR_LIST = ["basic", "llama2", "ChatGPT"]
-    def __init__(self, dataloader:DataLoader, method='basic'):
+    def __init__(self, dataloader:DataLoader, method='basic', size=5):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
+        logger.info(f"Lunching model {method}")
         if method not in Extractor.EXTRACTOR_LIST:
             logger.error(f"{method = } is not supported")
             raise ValueError
@@ -246,7 +261,7 @@ class Extractor(FeatureExtractorInterface):
             "llama2" : Llama2Extractor,
             "ChatGPT" : ChatGPTExtractor
         }
-        self.extractor = self.extract_methods[method](dataloader)
+        self.extractor = self.extract_methods[method](dataloader, size=size)
         self.extractor.do_extract()
         # self.show()
 
@@ -266,5 +281,5 @@ if __name__ == "__main__":
     # test_cases = ["This 31 y/o"]
     # extracted_ages = [BasicExtractor(dl).extract_y_o_age(case) for case in test_cases]
     # print(extracted_ages)
-    ex.show(feature=FeatureExtractorInterface.TREAT, n=21)
+    ex.show(features=[FeatureExtractorInterface.AGE, FeatureExtractorInterface.TREAT], n=21)
     # print(dl.columns)

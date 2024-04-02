@@ -9,7 +9,7 @@ class DataLoader:
     def __init__(self, path):
         self.path = path
         self._load()
-        self.show(100)
+        
     def _load(self):
         logger.info(f"Loading dataset : {self.path}")
         self.data = pd.read_csv(self.path)
