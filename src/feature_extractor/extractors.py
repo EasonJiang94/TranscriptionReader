@@ -28,8 +28,10 @@ class FeatureExtractorInterface:
     def extract_treatment(self, text):
         return None
     
-    def show(self, n=100):
-        logger.info(self.data[FeatureExtractorInterface.AGE].head(n))
+    def show(self, feature=None, n=100):
+        if feature is None:
+            feature = FeatureExtractorInterface.AGE
+        logger.info(self.data[feature].head(n))
 
 
 class BasicExtractor(FeatureExtractorInterface):
@@ -108,19 +110,22 @@ class BasicExtractor(FeatureExtractorInterface):
 class Llama2Extractor(BasicExtractor):
     # follow the instruction from the link below to use llm CLI
     # https://simonwillison.net/2023/Aug/1/llama-2-mac/
-    def __init__(self, dataloader:DataLoader, method='basic'):
+    def __init__(self, dataloader:DataLoader, size=5, method='basic'):
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
         logger.info("Launched Llama2Extractor")
         self.cnt = 0
+        self.size = size
 
     def do_extract(self):
-        self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
+        #self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
         self.data[FeatureExtractorInterface.TREAT] = self.data[DataLoader.TRAN_STR].apply(self.extract_treatment)
         return self.data
 
     def extract_age(self, text):
         if not isinstance(text, str):
+            return None
+        if self.cnt > self.size:
             return None
         # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
         prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
@@ -136,13 +141,14 @@ class Llama2Extractor(BasicExtractor):
         self.cnt += 1
         return response
     
-    def _extract_treatment(self, text):
+    def extract_treatment(self, text):
         if not isinstance(text, str):
             return None
-        # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
-        prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
-        # post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
-        post_prompt = "\nAnswer with the json format : {'Age' : <num or None>}.\n If you don't know the answer, you can say : 'Age : Unkown'"
+        if self.cnt > self.size:
+            return None
+        logger.debug("Extracting treatment information")
+        prompt = "Analyze the information step by step, make a brief summarization of what treatment of the patient received\n"
+        post_prompt = "Answer it in 150 words"
         # post_prompt = ""
         text = text.replace('"', '\\"')
         token = prompt + text + post_prompt
@@ -157,25 +163,26 @@ class ChatGPTExtractor(BasicExtractor):
     # follow the instruction from the link below to use chat-gpt api
     # https://platform.openai.com/docs/quickstart?context=python
     
-    def __init__(self, dataloader:DataLoader, method='basic'):
+    def __init__(self, dataloader:DataLoader,size=5, method='basic'):
         from openai import OpenAI
         super().__init__(dataloader)
         # self.dl.show(4998, col=DataLoader.TRAN_STR)
         self.client = OpenAI()
         logger.info("Launched Llama2Extractor")
         self.cnt = 0
+        self.size = size
         
 
 
     def do_extract(self):
-        self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
+        # self.data[FeatureExtractorInterface.AGE] = self.data[DataLoader.TRAN_STR].apply(self.extract_age)        
         self.data[FeatureExtractorInterface.TREAT] = self.data[DataLoader.TRAN_STR].apply(self.extract_treatment)
         return self.data
 
     def extract_age(self, text):
         if not isinstance(text, str):
             return None
-        if self.cnt >20:
+        if self.cnt > self.size:
             return None
         prompt = "Analyze the information step by step, Do a simple summarize, \
             then tell me the patient's age. \
@@ -201,22 +208,29 @@ class ChatGPTExtractor(BasicExtractor):
 
         return ans
     
-    def _extract_treatment(self, text):
+    def extract_treatment(self, text):
         if not isinstance(text, str):
             return None
-        # prompt = "Analyze the information step by step, and tell me the person's age by the decription of a patient I gave. Just tell me the age, do not explain:\n"
-        prompt = "Analyze the information step by step, Do a simple summarize, then tell me the patient's age. Please output the age information only, do not tell me other information\n"
-        # post_prompt = "\nAgain, Please output the digit of age information only, do not tell me other information. If you don't know the age information, return 'NaN', do not guess."
-        post_prompt = "\nAnswer with the json format : {'Age' : <num or None>}.\n If you don't know the answer, you can say : 'Age : Unkown'"
-        # post_prompt = ""
-        text = text.replace('"', '\\"')
-        token = prompt + text + post_prompt
-        # print(token)
-        # os.system(f"llm -m l2c \"{token}\"")
-        response = subprocess.getoutput(f"llm -m l2c \"{token}\"")
-        print(f"{self.cnt}\t| {response}", flush=True)
+        if self.cnt > self.size:
+            return None
+        prompt = "Analyze the information step by step, \
+                make a brief summarization of what treatment of the patient received\n"
+        
+        post_prompt = "\nPlease answer it in 100 words."
+        token = text + post_prompt
+        response = self.client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": token}
+            ]
+        )
+        ans = response.choices[0].message.content
+        
+        print(f"{self.cnt}\t| {ans}", flush=True)
         self.cnt += 1
-        return response
+
+        return ans
    
 
 class Extractor(FeatureExtractorInterface):
@@ -241,6 +255,7 @@ class Extractor(FeatureExtractorInterface):
 if __name__ == "__main__":
     path = "../../data/mtsamples.csv"
     dl = DataLoader(path)
+    # EXTRACTOR_LIST = ["basic", "llama2", "ChatGPT"]
     ex = Extractor(dl, method="ChatGPT")
     # test_cases = ["56-year-old", "56-year old", "67-year old", "64 year-old", "2-1/2-year-old", "5-1/2 years old"]
     # extracted_ages = [BasicExtractor(dl).extract_age(case) for case in test_cases]
@@ -251,5 +266,5 @@ if __name__ == "__main__":
     # test_cases = ["This 31 y/o"]
     # extracted_ages = [BasicExtractor(dl).extract_y_o_age(case) for case in test_cases]
     # print(extracted_ages)
-    ex.show(21)
+    ex.show(feature=FeatureExtractorInterface.TREAT, n=21)
     # print(dl.columns)
