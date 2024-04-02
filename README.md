@@ -19,7 +19,11 @@ python3 main.py -m ChatGPT -s 5
 ```
 or 
 ```
-python3 main.py -m ChatGPT -s 5
+python3 main.py -m llama2 -s 5
+```
+or 
+```
+python3 main.py -m basic -s 5
 ```
 where you can choose models among ['basic', 'llama2', 'ChatGPT']
 
